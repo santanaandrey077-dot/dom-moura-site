@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Scissors, CalendarDays, Clock, MapPin, Phone, Check, ChevronRight, ChevronLeft, ShieldCheck, UserRound, Banknote, Package, TrendingUp, X, Menu, Plus, LockKeyhole, CircleCheck, CircleX, RefreshCw } from 'lucide-react';
 
+import { supabase } from './supabase';
+
 const CONFIG = {
   name: 'Dom Moura',
   address: 'Avenida Carlos Cruz, nº 2709, bairro Juvêncio Santana',
