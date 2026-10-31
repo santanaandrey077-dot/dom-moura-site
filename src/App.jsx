@@ -72,6 +72,7 @@ function App() {
   const [notice, setNotice] = useState('');
   const [unavailable, setUnavailable] = useState([]);
 const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState(false);
   const [manageCode, setManageCode] = useState('');
   const [manageAppt, setManageAppt] = useState(null);
   const [period, setPeriod] = useState('day');
@@ -94,7 +95,8 @@ const [loadingSlots, setLoadingSlots] = useState(false);
     }
 
     setLoadingSlots(true);
-    setUnavailable([]);
+setSlotsError(false);
+setUnavailable([]);
 
     const { data, error } = await supabase.rpc(
       'get_unavailable_slots',
@@ -108,6 +110,7 @@ const [loadingSlots, setLoadingSlots] = useState(false);
 
     if (error) {
       console.error('Erro ao consultar horários:', error);
+      setSlotsError(true);
       setNotice('Não foi possível consultar a agenda. Tente novamente.');
     } else {
       setUnavailable(data || []);
@@ -127,7 +130,8 @@ const [loadingSlots, setLoadingSlots] = useState(false);
  
 const availableSlots = useMemo(() => {
   if (
-    loadingSlots ||
+  loadingSlots ||
+  slotsError ||
     !booking.barber ||
     !booking.date ||
     !selectedService ||
@@ -163,7 +167,7 @@ const availableSlots = useMemo(() => {
       return start < busyEnd && end > busyStart;
     });
   });
-}, [booking.barber, booking.date, selectedService, unavailable, loadingSlots]);
+}, [booking.barber, booking.date, selectedService, unavailable, loadingSlots, slotsError]);
 
   const adminAppts = appts.filter(a => a.date === selectedDate).sort((a,b) => a.time.localeCompare(b.time));
   const revenue = appts.filter(a => a.status === 'concluido' && (period === 'day' ? a.date === today : period === 'week' ? isWithinDays(a.date,7) : a.date.slice(0,7) === today.slice(0,7))).reduce((sum,a)=>sum+Number(a.paidAmount ?? a.price ?? 0),0);
