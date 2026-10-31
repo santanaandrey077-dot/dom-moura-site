@@ -12,6 +12,20 @@ const CONFIG = {
   lunchEnd: '13:00',
 };
 const BARBERS = ['Arthur', 'Andrey', 'Dom Moura'];
+const BARBER_IDS = {
+  'Arthur': '158b1f79-0ae2-4a7c-9ba8-67bdaa7f632a',
+  'Andrey': '1f8ccd4b-70a4-4671-bead-9cdd5b90847c',
+  'Dom Moura': 'cb920543-a8c9-4f13-9743-2d24bf7d976c',
+};
+
+const SERVICE_IDS = {
+  'corte': '9320014a-9711-4ab3-81f3-0861240de370',
+  'barba': 'b78b442e-12a5-4dec-b6fc-817d89032e52',
+  'combo': '015d6e64-434e-4b35-a214-1268160ec679',
+  'sobrancelha': 'd5fc9280-0eb1-4af5-9743-9f4f0480d7a4',
+  'pig-cabelo': '02af1e07-54c3-4473-a769-c63fcd7cb06d',
+  'pig-barba': '60ba7e0d-cf43-4d27-9566-b9cf4dc300d7',
+};
 const SERVICES = [
   { id: 'corte', name: 'Corte de cabelo', price: 30, duration: 30, desc: 'Corte personalizado e acabamento.' },
   { id: 'barba', name: 'Barba', price: 30, duration: 30, desc: 'Desenho, alinhamento e acabamento.' },
