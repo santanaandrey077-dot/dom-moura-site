@@ -70,6 +70,8 @@ function App() {
   const [step, setStep] = useState(1);
   const [booking, setBooking] = useState({ service: '', barber: '', date: today, time: '', name: '', phone: '' });
   const [notice, setNotice] = useState('');
+  const [unavailable, setUnavailable] = useState([]);
+const [loadingSlots, setLoadingSlots] = useState(false);
   const [manageCode, setManageCode] = useState('');
   const [manageAppt, setManageAppt] = useState(null);
   const [period, setPeriod] = useState('day');
@@ -82,6 +84,44 @@ function App() {
   useEffect(() => save('dm_moves', moves), [moves]);
   useEffect(() => save('dm_products', products), [products]);
   useEffect(() => save('dm_clients', clients), [clients]);
+  useEffect(() => {
+  let cancelled = false;
+
+  async function fetchUnavailable() {
+    if (!booking.barber || !booking.date) {
+      setUnavailable([]);
+      return;
+    }
+
+    setLoadingSlots(true);
+    setUnavailable([]);
+
+    const { data, error } = await supabase.rpc(
+      'get_unavailable_slots',
+      {
+        p_barber_id: BARBER_IDS[booking.barber],
+        p_date: booking.date
+      }
+    );
+
+    if (cancelled) return;
+
+    if (error) {
+      console.error('Erro ao consultar horários:', error);
+      setNotice('Não foi possível consultar a agenda. Tente novamente.');
+    } else {
+      setUnavailable(data || []);
+    }
+
+    setLoadingSlots(false);
+  }
+
+  fetchUnavailable();
+
+  return () => {
+    cancelled = true;
+  };
+}, [booking.barber, booking.date]);
 
   const selectedService = SERVICES.find(s => s.id === booking.service);
   const bookedTimes = useMemo(() => appts.filter(a => a.date === booking.date && a.barber === booking.barber && !['cancelado'].includes(a.status)).map(a => a.time), [appts, booking.date, booking.barber]);
