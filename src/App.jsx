@@ -124,8 +124,47 @@ const [loadingSlots, setLoadingSlots] = useState(false);
 }, [booking.barber, booking.date]);
 
   const selectedService = SERVICES.find(s => s.id === booking.service);
-  const bookedTimes = useMemo(() => appts.filter(a => a.date === booking.date && a.barber === booking.barber && !['cancelado'].includes(a.status)).map(a => a.time), [appts, booking.date, booking.barber]);
-  const availableSlots = slots().filter(t => !bookedTimes.includes(t) && (booking.date !== today || t > new Date().toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit', hour12:false})));
+ 
+const availableSlots = useMemo(() => {
+  if (
+    loadingSlots ||
+    !booking.barber ||
+    !booking.date ||
+    !selectedService ||
+    selectedService.price == null
+  ) return [];
+
+  const duration = selectedService.duration;
+
+  return slots().filter(time => {
+    const start = new Date(`${booking.date}T${time}:00-03:00`);
+    const end = new Date(start.getTime() + duration * 60000);
+
+    if (start <= new Date()) return false;
+
+    const localEnd = new Date(
+      end.toLocaleString('en-US', { timeZone: 'America/Fortaleza' })
+    );
+
+    const endMinutes = localEnd.getHours() * 60 + localEnd.getMinutes();
+    const startMinutes = Number(time.slice(0, 2)) * 60 +
+      Number(time.slice(3, 5));
+
+    if (endMinutes > 20 * 60) return false;
+
+    if (startMinutes < 13 * 60 && endMinutes > 12 * 60) {
+      return false;
+    }
+
+    return !unavailable.some(item => {
+      const busyStart = new Date(item.starts_at);
+      const busyEnd = new Date(item.ends_at);
+
+      return start < busyEnd && end > busyStart;
+    });
+  });
+}, [booking.barber, booking.date, selectedService, unavailable, loadingSlots]);
+
   const adminAppts = appts.filter(a => a.date === selectedDate).sort((a,b) => a.time.localeCompare(b.time));
   const revenue = appts.filter(a => a.status === 'concluido' && (period === 'day' ? a.date === today : period === 'week' ? isWithinDays(a.date,7) : a.date.slice(0,7) === today.slice(0,7))).reduce((sum,a)=>sum+Number(a.paidAmount ?? a.price ?? 0),0);
   const expenses = moves.filter(m => m.type === 'saida' && (period === 'day' ? m.date === today : period === 'week' ? isWithinDays(m.date,7) : m.date.slice(0,7) === today.slice(0,7))).reduce((sum,m)=>sum+Number(m.amount),0);
