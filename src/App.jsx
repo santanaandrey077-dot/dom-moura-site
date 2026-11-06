@@ -101,6 +101,11 @@ function App() {
   const [loginError, setLoginError] = useState('');
   const [sessionUser, setSessionUser] = useState(null);
   const [adminAuthorized, setAdminAuthorized] = useState(false);
+  const [staffProfile, setStaffProfile] = useState(null);
+  const [staffAppts, setStaffAppts] = useState([]);
+  const [staffBusy, setStaffBusy] = useState(false);
+  const [staffError, setStaffError] = useState('');
+  const [staffPayment, setStaffPayment] = useState(null);
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminError, setAdminError] = useState('');
   const [step, setStep] = useState(1);
@@ -175,11 +180,14 @@ function App() {
     return () => { alive = false; subscription.unsubscribe(); };
   }, []);
   useEffect(() => {
-    if (!sessionUser) { setAdminAuthorized(false); return; }
+    if (!sessionUser) { setAdminAuthorized(false); setStaffProfile(null); setStaffAppts([]); return; }
     let alive = true;
     supabase.rpc('dm_is_admin').then(({data,error}) => {
       if (alive) { setAdminAuthorized(!error && data === true); if (error) setAdminError(reportError(error)); }
     }).catch(() => { if (alive) setAdminAuthorized(false); });
+    supabase.rpc('dm_staff_profile').then(({data,error}) => {
+      if (alive) setStaffProfile(!error && Array.isArray(data) && data.length ? data[0] : null);
+    }).catch(() => { if (alive) setStaffProfile(null); });
     return () => { alive = false; };
   }, [sessionUser?.id]);
   useEffect(() => {
@@ -355,28 +363,68 @@ function App() {
       setCompletion(null);
     });
   }
+  async function refreshStaff() {
+    if (!staffProfile) return;
+    setStaffBusy(true); setStaffError('');
+    try {
+      const {data,error} = await supabase.rpc('dm_staff_appointments');
+      if (error) throw error;
+      setStaffAppts(Array.isArray(data) ? data : []);
+    } catch (e) { setStaffError(reportError(e)); }
+    finally { setStaffBusy(false); }
+  }
+  useEffect(() => {
+    if (view === 'staff' && staffProfile && !adminAuthorized) refreshStaff();
+  }, [view, staffProfile?.barber_id, adminAuthorized]);
+  async function completeStaff(e) {
+    e.preventDefault();
+    if (!staffPayment || staffBusy) return;
+    setStaffBusy(true); setStaffError('');
+    try {
+      const {error} = await supabase.rpc('dm_staff_complete', {
+        p_appointment_id: staffPayment.id,
+        p_amount: Number(staffPayment.amount),
+        p_payment_method: staffPayment.method
+      });
+      if (error) throw error;
+      setStaffPayment(null);
+      const result = await supabase.rpc('dm_staff_appointments');
+      if (result.error) throw result.error;
+      setStaffAppts(result.data || []);
+    } catch (e) { setStaffError(reportError(e)); }
+    finally { setStaffBusy(false); }
+  }
   async function doLogin(e) {
     e.preventDefault(); setLoginError(''); setAdminLoading(true);
     try {
       const {error} = await supabase.auth.signInWithPassword({email:adminEmail,password:adminPassword});
       if (error) throw error;
       const check = await supabase.rpc('dm_is_admin');
-      if (check.error || check.data !== true) {
-        await supabase.auth.signOut();
-        throw new Error('Esta conta não está autorizada como proprietária.');
+      if (check.error) throw check.error;
+      if (check.data === true) {
+        setStaffProfile(null); setAdminAuthorized(true);
+        setAdminPassword(''); setAdminOpen(false); setView('admin');
+      } else {
+        const profile = await supabase.rpc('dm_staff_profile');
+        if (profile.error || !Array.isArray(profile.data) || !profile.data.length) {
+          await supabase.auth.signOut();
+          throw new Error('Esta conta não possui acesso autorizado.');
+        }
+        setAdminAuthorized(false); setStaffProfile(profile.data[0]);
+        setAdminPassword(''); setAdminOpen(false); setView('staff');
       }
-      setAdminAuthorized(true); setAdminPassword(''); setAdminOpen(false); setView('admin');
     } catch(e) { setLoginError(reportError(e)); }
     finally { setAdminLoading(false); }
   }
   function openAdmin() {
     setLoginError('');
     if (adminAuthorized) { setView('admin'); return; }
+    if (staffProfile) { setView('staff'); return; }
     setAdminOpen(true);
   }
   async function logoutAdmin() {
     await supabase.auth.signOut();
-    setAdminAuthorized(false); setAppts([]); setClients([]); setMoves([]); setProducts([]);
+    setAdminAuthorized(false); setStaffProfile(null); setStaffAppts([]); setStaffPayment(null); setAppts([]); setClients([]); setMoves([]); setProducts([]);
     setView('home'); setAdminOpen(false);
   }
   async function lookupBooking(code,phone) {
@@ -563,6 +611,34 @@ function App() {
 
     {view==='manage'&&<main className="page-wrap"><div className="page-heading"><p className="kicker">GERENCIE SUA RESERVA</p><h1>Meu agendamento</h1><p>Informe o código da confirmação e o WhatsApp usado na reserva.</p></div><form className="manage-search" onSubmit={findManage}><input value={manageCode} onChange={e=>setManageCode(e.target.value)} placeholder="Código de confirmação" required/><input type="tel" value={managePhone} onChange={e=>setManagePhone(e.target.value)} placeholder="WhatsApp da reserva" required/><button className="btn btn-gold" disabled={manageBusy}>{manageBusy?'Consultando...':'Consultar'}</button></form>{notice&&<p className="notice centered">{notice}</p>}{manageAppt&&<div className="manage-result"><div><p className="kicker">CÓDIGO {manageAppt.code}</p><h2>{manageAppt.serviceName}</h2><p>{manageAppt.barber} · {dateBR(manageAppt.date)} às {manageAppt.time}</p><b>{money(manageAppt.price)}</b><p>Status: <span className="status">{manageAppt.status}</span></p></div>{manageAppt.status==='agendado'&&<div className="manage-actions"><button className="btn btn-outline" disabled={manageBusy} onClick={()=>startRescheduling(manageAppt)}><RefreshCw size={15}/> Remarcar</button><button className="btn btn-danger" disabled={manageBusy} onClick={()=>cancelAppt(manageAppt)}><X size={15}/> Cancelar</button></div>}</div>}</main>}
 
+    {view==='staff' && staffProfile && !adminAuthorized && <main className="page-wrap">
+      <div className="page-heading"><p className="kicker">ÁREA DO FUNCIONÁRIO</p><h1>Agenda de {staffProfile.barber_name}</h1><p>Somente seus atendimentos. Sem acesso ao caixa geral.</p></div>
+      <div style={{display:'flex',gap:12,flexWrap:'wrap',marginBottom:20}}>
+        <button className="btn btn-outline" onClick={refreshStaff} disabled={staffBusy}><RefreshCw size={16}/> Atualizar agenda</button>
+        <button className="btn btn-outline" onClick={logoutAdmin}>Sair da conta</button>
+      </div>
+      {staffError && <p className="notice">{staffError}</p>}
+      <div className="table-wrap"><table><thead><tr><th>Data e hora</th><th>Cliente</th><th>Serviço</th><th>Status</th><th>Pagamento</th></tr></thead><tbody>
+      {staffAppts.map(a=><tr key={a.appointment_id}>
+        <td>{dateBR(dateKey(a.starts_at))} às {hourKey(a.starts_at)}</td>
+        <td>{a.client_name}</td><td>{a.service_name}</td>
+        <td><span className={`pill ${a.status}`}>{a.status}</span></td>
+        <td>{a.status==='agendado' ?
+          <button className="btn btn-gold btn-small" onClick={()=>setStaffPayment({id:a.appointment_id,amount:String(a.service_price ?? 0),method:'pix'})}>Concluir</button> :
+          a.status==='concluido' ? money(a.paid_amount ?? 0) : '—'}</td>
+      </tr>)}</tbody></table>
+      {!staffBusy && !staffAppts.length && <div className="empty-state">Nenhum atendimento encontrado.</div>}
+      </div>
+      {staffPayment && <div className="modal-backdrop" onClick={()=>setStaffPayment(null)}>
+        <form className="login-modal" onClick={e=>e.stopPropagation()} onSubmit={completeStaff}>
+          <button type="button" className="modal-close" onClick={()=>setStaffPayment(null)}><X size={19}/></button>
+          <h2>Concluir atendimento</h2>
+          <label className="field-label">Valor recebido (R$)<input type="number" min="0" max="100000" step="0.01" required value={staffPayment.amount} onChange={e=>setStaffPayment({...staffPayment,amount:e.target.value})}/></label>
+          <label className="field-label">Forma de pagamento<select value={staffPayment.method} onChange={e=>setStaffPayment({...staffPayment,method:e.target.value})}><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option></select></label>
+          <button className="btn btn-gold full" disabled={staffBusy}>{staffBusy?'Registrando...':'Confirmar conclusão'}</button>
+        </form>
+      </div>}
+    </main>}
     {view==='admin'&&adminAuthorized&&<main className="admin-page"><aside className="admin-sidebar"><div className="admin-logo"><img src="/logo-dom-moura.webp" alt="Logo Dom Moura" style={{width:44,height:44,objectFit:'contain',flexShrink:0}}/><b>DOM MOURA</b></div><p className="sidebar-label">GESTÃO</p>{[['agenda','Agenda'],['financeiro','Financeiro'],['produtos','Vendas de produtos'],['clientes','Clientes'],['bloqueios','Bloqueios'],['config','Configurações']].map(([id,label])=><button key={id} className={adminTab===id?'side-link active':'side-link'} onClick={()=>setAdminTab(id)}>{label}</button>)}<button className="side-link exit" onClick={logoutAdmin}>Sair do painel</button></aside><div className="admin-content"><div className="admin-top"><div><p className="kicker">PAINEL DO PROPRIETÁRIO</p><h1>{adminTab==='agenda'?'Agenda':adminTab==='financeiro'?'Financeiro':adminTab==='produtos'?'Vendas de produtos':adminTab==='clientes'?'Clientes':adminTab==='bloqueios'?'Bloqueios':'Configurações'}</h1></div><span className="admin-user"><LockKeyhole size={15}/> Acesso do dono</span></div>{adminError&&<p className="notice">{adminError}</p>}<button className="btn btn-outline btn-small" type="button" disabled={adminLoading} onClick={refreshAdmin}><RefreshCw size={15}/> Atualizar dados</button>
       {adminTab==='agenda'&&<><div className="admin-controls"><label>Dia da agenda<input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)}/></label><span>{adminAppts.length} agendamento(s)</span></div><div className="table-wrap"><table><thead><tr><th>Horário</th><th>Cliente</th><th>Serviço</th><th>Barbeiro</th><th>Status</th><th>Ações</th></tr></thead><tbody>{adminAppts.map(a=><tr key={a.id}><td>{a.time}</td><td>{a.name}<small>{a.phone}</small></td><td>{a.serviceName}</td><td>{a.barber}</td><td><span className={`pill ${a.status}`}>{a.status}</span></td><td><select value={a.status} onChange={e=>updateStatus(a.id,e.target.value)}><option value="agendado">Agendado</option><option value="concluido">Concluído</option><option value="cancelado">Cancelado</option><option value="faltou">Faltou</option></select></td></tr>)}</tbody></table>{!adminAppts.length&&<div className="empty-state">Nenhum agendamento para esta data.</div>}</div></>}
       {adminTab==='financeiro'&&<><div className="period-switch">{[['day','Dia'],['week','Semana'],['month','Mês']].map(([id,l])=><button key={id} className={period===id?'selected':''} onClick={()=>setPeriod(id)}>{l}</button>)}</div><div className="metrics"><Metric label="Faturamento de serviços" value={money(revenue)} icon={<TrendingUp/>}/><Metric label="Saídas" value={money(expenses)} icon={<Banknote/>}/><Metric label="Vendas de produtos" value={money(productRevenue)} icon={<Package/>}/><Metric label="Outras entradas" value={money(extraIncome)} icon={<Banknote/>}/><Metric label="Saldo estimado" value={money(revenue+productRevenue+extraIncome-expenses)} icon={<CircleCheck/>}/><Metric label="Comissões de produtos" value={money(commissions)} icon={<Package/>}/></div><div className="admin-panel"><h3>Movimentações do caixa</h3><form className="inline-form" onSubmit={addExpense}><input placeholder="Descrição (ex.: aluguel)" value={expense.description} onChange={e=>setExpense({...expense,description:e.target.value})} required/><input type="number" min="0.01" step="0.01" placeholder="Valor R$" value={expense.amount} onChange={e=>setExpense({...expense,amount:e.target.value})} required/><select value={expense.type} onChange={e=>setExpense({...expense,type:e.target.value})}><option value="saida">Saída</option><option value="entrada">Entrada</option></select><button className="btn btn-gold"><Plus size={15}/> Lançar</button></form><div className="movement-list">{moves.map(m=><div key={m.id} style={{display:'block',padding:'14px 0'}}>
@@ -584,11 +660,12 @@ function App() {
       {adminTab==='config'&&<><div className="admin-panel"><h3>Serviços</h3><form className="inline-form" onSubmit={addService}><input placeholder="Nome do serviço" required value={newService.name} onChange={e=>setNewService({...newService,name:e.target.value})}/><input placeholder="Preço R$" type="number" min="0.01" step="0.01" required value={newService.price} onChange={e=>setNewService({...newService,price:e.target.value})}/><input placeholder="Duração (min)" type="number" min="1" required value={newService.duration} onChange={e=>setNewService({...newService,duration:e.target.value})}/><button className="btn btn-gold" disabled={adminLoading}>Adicionar serviço</button></form><div className="movement-list">{dbServices.map(s=><div key={s.id}><span><b>{s.name}</b><small>{money(s.price)} · {s.duration_minutes} min</small></span><button className="btn btn-outline btn-small" disabled={adminLoading} onClick={()=>adminAction(async()=>{const {error}=await supabase.from('services').update({active:!s.active}).eq('id',s.id);if(error)throw error;})}>{s.active?'Desativar':'Ativar'}</button></div>)}</div></div><div className="admin-panel"><h3>Barbeiros</h3><form className="inline-form" onSubmit={addBarber}><input placeholder="Nome do barbeiro" required value={newBarber} onChange={e=>setNewBarber(e.target.value)}/><button className="btn btn-gold" disabled={adminLoading}>Adicionar barbeiro</button></form><div className="movement-list">{dbBarbers.map(b=><div key={b.id}><span><b>{b.name}</b></span><button className="btn btn-outline btn-small" disabled={adminLoading} onClick={()=>adminAction(async()=>{const {error}=await supabase.from('barbers').update({active:!b.active}).eq('id',b.id);if(error)throw error;})}>{b.active?'Desativar':'Ativar'}</button></div>)}</div></div></>}
     </div></main>}
 
+    {view==='staff'&&!staffProfile&&<main className="page-wrap"><p className="notice">Acesso restrito aos funcionários autorizados.</p><button className="btn btn-gold" onClick={openAdmin}>Entrar</button></main>}
     {view==='admin'&&!adminAuthorized&&<main className="page-wrap"><div className="notice">Acesso restrito. Entre pela opção “Acesso do proprietário”.</div><button className="btn btn-gold" onClick={openAdmin}>Entrar</button></main>}
     {completion&&<div className="modal-backdrop" onClick={()=>setCompletion(null)}><form className="login-modal" onClick={e=>e.stopPropagation()} onSubmit={submitCompletion}><button type="button" className="modal-close" onClick={()=>setCompletion(null)}><X size={19}/></button><h2>Concluir atendimento</h2><p className="muted">Informe o valor recebido e a forma de pagamento.</p><label className="field-label">Valor recebido (R$)<input type="number" min="0" step="0.01" value={completion.amount} onChange={e=>setCompletion({...completion,amount:e.target.value})} required/></label><label className="field-label">Forma de pagamento<select value={completion.payment} onChange={e=>setCompletion({...completion,payment:e.target.value})}><option value="pix">Pix</option><option value="dinheiro">Dinheiro</option><option value="cartao">Cartão</option></select></label><button className="btn btn-gold full" disabled={adminLoading}>Registrar conclusão</button></form></div>}
-    {adminOpen&&<div className="modal-backdrop" onClick={()=>setAdminOpen(false)}><form className="login-modal" onClick={e=>e.stopPropagation()} onSubmit={doLogin}><button type="button" className="modal-close" onClick={()=>setAdminOpen(false)}><X size={19}/></button><span className="success-icon"><LockKeyhole size={28}/></span><p className="kicker">ÁREA RESTRITA</p><h2>Acesso do proprietário</h2><p className="muted">Entre com suas credenciais de administrador.</p><label className="field-label">E-mail<input type="email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} required/></label><label className="field-label">Senha<input type="password" value={adminPassword} onChange={e=>setAdminPassword(e.target.value)} placeholder="Sua senha" required/></label>{loginError&&<p className="notice">{loginError}</p>}<button className="btn btn-gold full" disabled={adminLoading}>{adminLoading?'Entrando...':'Entrar no painel'}</button><small className="login-warning">Acesso protegido por Supabase Auth.</small></form></div>}
+    {adminOpen&&<div className="modal-backdrop" onClick={()=>setAdminOpen(false)}><form className="login-modal" onClick={e=>e.stopPropagation()} onSubmit={doLogin}><button type="button" className="modal-close" onClick={()=>setAdminOpen(false)}><X size={19}/></button><span className="success-icon"><LockKeyhole size={28}/></span><p className="kicker">ÁREA RESTRITA</p><h2>Acesso da equipe</h2><p className="muted">Entre com suas credenciais de administrador ou funcionário.</p><label className="field-label">E-mail<input type="email" value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} required/></label><label className="field-label">Senha<input type="password" value={adminPassword} onChange={e=>setAdminPassword(e.target.value)} placeholder="Sua senha" required/></label>{loginError&&<p className="notice">{loginError}</p>}<button className="btn btn-gold full" disabled={adminLoading}>{adminLoading?'Entrando...':'Entrar no painel'}</button><small className="login-warning">Acesso protegido por Supabase Auth.</small></form></div>}
 
-    <footer className="footer"><div className="brand footer-brand"><img src="/logo-dom-moura.webp" alt="Logo Dom Moura" style={{width:48,height:48,objectFit:'contain',flexShrink:0}}/><span><b>DOM MOURA</b><small>BARBEARIA</small></span></div><p>Seu estilo, nossa assinatura.</p><span>© {new Date().getFullYear()} Dom Moura. Todos os direitos reservados.</span><button className="admin-entry" onClick={openAdmin}>Acesso do proprietário</button></footer>
+    <footer className="footer"><div className="brand footer-brand"><img src="/logo-dom-moura.webp" alt="Logo Dom Moura" style={{width:48,height:48,objectFit:'contain',flexShrink:0}}/><span><b>DOM MOURA</b><small>BARBEARIA</small></span></div><p>Seu estilo, nossa assinatura.</p><span>© {new Date().getFullYear()} Dom Moura. Todos os direitos reservados.</span><button className="admin-entry" onClick={openAdmin}>Acesso da equipe</button></footer>
   </div>;
 }
 
