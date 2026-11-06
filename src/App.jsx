@@ -522,7 +522,7 @@ function App() {
       .field-label select:focus { border-color: #d6b15c; }
       .btn:disabled { opacity: .65; cursor: not-allowed; transform: none; }`}</style>
     <header className="topbar">
-      <a className="brand" href="#" onClick={e=>{e.preventDefault();setView('home')}}><span className="brand-mark"><Scissors size={23}/></span><span><b>DOM MOURA</b><small>BARBEARIA</small></span></a>
+      <a className="brand" href="#" onClick={e=>{e.preventDefault();setView('home')}}><img src="/logo-dom-moura.webp" alt="Logo Dom Moura" style={{width:52,height:52,objectFit:'contain'}}/><span><b>DOM MOURA</b><small>BARBEARIA</small></span></a>
       <nav className={menuOpen?'nav nav-open':'nav'}>
         <button onClick={()=>{setView('home');setMenuOpen(false)}}>Início</button><button onClick={()=>{setView('services');setMenuOpen(false)}}>Serviços</button><button onClick={()=>{beginBooking();setMenuOpen(false)}}>Agendar</button><button onClick={()=>{setView('manage');setMenuOpen(false)}}>Meu agendamento</button>
       </nav>
